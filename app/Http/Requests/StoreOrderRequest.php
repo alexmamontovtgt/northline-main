@@ -7,7 +7,7 @@ namespace App\Http\Requests;
 use App\Models\Order;
 use Illuminate\Foundation\Http\FormRequest;
 
-class StoreOrderRequest extends FormRequest
+final class StoreOrderRequest extends FormRequest
 {
     public function authorize(): bool
     {
