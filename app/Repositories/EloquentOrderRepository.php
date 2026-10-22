@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 final class EloquentOrderRepository implements OrderRepository
 {
-    private const DUPLICATE_WINDOW_SECONDS = 10;
+    private const DUPLICATE_WINDOW_SECONDS = 2;
 
     /** @return LengthAwarePaginator<int, Order> */
     public function list(?OrderStatus $status = null, ?string $email = null, int $perPage = 15): LengthAwarePaginator
