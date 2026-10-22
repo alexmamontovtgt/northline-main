@@ -8,7 +8,7 @@ use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\User;
 
-class OrderPolicy
+final class OrderPolicy
 {
     public function create(User $user): bool
     {

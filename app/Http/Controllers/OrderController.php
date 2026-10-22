@@ -16,7 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
 
-class OrderController extends Controller
+final class OrderController extends Controller
 {
     public function index(ListOrdersRequest $request, OrderRepository $orders): AnonymousResourceCollection
     {
