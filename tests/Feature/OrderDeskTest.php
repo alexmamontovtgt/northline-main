@@ -3,11 +3,18 @@
 namespace Tests\Feature;
 
 use App\Enums\OrderStatus;
+use App\Events\OrderPlaced;
+use App\Listeners\SendOrderPlacedEmail;
+use App\Listeners\SyncOrderToCrm;
+use App\Mail\OrderPlacedMail;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 class OrderDeskTest extends TestCase
@@ -161,6 +168,55 @@ class OrderDeskTest extends TestCase
         $this->assertSame('25.00', $order->total_amount);
         $this->assertTrue($order->email_sent);
         $this->assertSame(2, $order->items()->count());
+    }
+
+    public function test_creating_an_order_dispatches_order_placed(): void
+    {
+        Event::fake([OrderPlaced::class]);
+
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [['product_name' => 'V-belt A48', 'qty' => 1, 'unit_price' => 10]],
+        ])->assertCreated();
+
+        Event::assertDispatched(OrderPlaced::class, fn (OrderPlaced $event) => $event->order->customer_id === $customer->id);
+        $this->assertFalse(Order::query()->firstOrFail()->email_sent);
+    }
+
+    public function test_order_placed_email_is_sent_once_and_marks_the_order(): void
+    {
+        Mail::fake();
+
+        $order = Order::factory()->create(['email_sent' => false]);
+
+        $listener = app(SendOrderPlacedEmail::class);
+        $listener->handle(new OrderPlaced($order));
+        $listener->handle(new OrderPlaced($order->fresh()));
+
+        Mail::assertSent(OrderPlacedMail::class, 1);
+        $this->assertTrue($order->fresh()->email_sent);
+    }
+
+    public function test_crm_sync_failure_is_logged(): void
+    {
+        Log::spy();
+
+        $customer = Customer::factory()->create(['email' => 'parts@westbridge-hydraulics.test']);
+        $order = Order::factory()->create(['customer_id' => $customer->id]);
+
+        $listener = app(SyncOrderToCrm::class);
+
+        try {
+            $listener->handle(new OrderPlaced($order));
+            $this->fail('Expected the CRM to reject the order.');
+        } catch (\Throwable $exception) {
+            $listener->failed(new OrderPlaced($order), $exception);
+        }
+
+        Log::shouldHaveReceived('warning')->once()->with('CRM sync failed', \Mockery::on(fn ($context) => $context['order_id'] === $order->id));
     }
 
     public function test_creating_an_order_requires_line_items(): void
