@@ -13,6 +13,7 @@ use App\Models\OrderItem;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
@@ -208,6 +209,70 @@ class OrderDeskTest extends TestCase
             'customer_id' => $customer->id,
             'items' => [['product_name' => 'Part A', 'qty' => 10000, 'unit_price' => '1.00']],
         ])->assertCreated();
+    }
+
+    public function test_repeating_an_identical_create_request_returns_the_same_order(): void
+    {
+        $this->travelTo(now()->startOfMinute());
+        Event::fake([OrderPlaced::class]);
+
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+        $payload = [
+            'customer_id' => $customer->id,
+            'items' => [
+                ['product_name' => 'A', 'qty' => 2, 'unit_price' => '1.50'],
+                ['product_name' => 'B', 'qty' => 1, 'unit_price' => '4.00'],
+            ],
+        ];
+
+        $first = $this->actingAs($user)->postJson('/api/orders', $payload)->assertCreated();
+        $second = $this->actingAs($user)->postJson('/api/orders', ['items' => array_reverse($payload['items'])] + $payload)->assertOk();
+
+        $this->assertSame($first->json('data.id'), $second->json('data.id'));
+        $this->assertSame(2, $second->json('data.items_count'));
+        $this->assertDatabaseCount('orders', 1);
+        $this->assertDatabaseCount('order_items', 2);
+        Event::assertDispatchedTimes(OrderPlaced::class, 1);
+    }
+
+    public function test_a_different_order_or_a_later_repeat_is_created_normally(): void
+    {
+        $this->travelTo(now()->startOfMinute());
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+        $other = Customer::factory()->create();
+        $payload = [
+            'customer_id' => $customer->id,
+            'items' => [['product_name' => 'A', 'qty' => 1, 'unit_price' => '1.00']],
+        ];
+
+        $this->actingAs($user)->postJson('/api/orders', $payload)->assertCreated();
+        $this->actingAs($user)->postJson('/api/orders', ['customer_id' => $other->id] + $payload)->assertCreated();
+        $this->actingAs($user)->postJson('/api/orders', ['items' => [['product_name' => 'A', 'qty' => 2, 'unit_price' => '1.00']]] + $payload)->assertCreated();
+        $this->actingAs(User::factory()->create())->postJson('/api/orders', $payload)->assertCreated();
+
+        $this->travel(11)->seconds();
+
+        $this->actingAs($user)->postJson('/api/orders', $payload)->assertCreated();
+        $this->assertDatabaseCount('orders', 5);
+    }
+
+    public function test_order_is_created_even_when_the_queue_is_unavailable(): void
+    {
+        Exceptions::fake();
+        Event::listen(OrderPlaced::class, fn () => throw new \RuntimeException('queue is down'));
+
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [['product_name' => 'A', 'qty' => 1, 'unit_price' => '1.00']],
+        ])->assertCreated();
+
+        $this->assertDatabaseCount('orders', 1);
+        Exceptions::assertReported(fn (\RuntimeException $e) => $e->getMessage() === 'queue is down');
     }
 
     public function test_deleting_a_missing_order_returns_a_friendly_message(): void

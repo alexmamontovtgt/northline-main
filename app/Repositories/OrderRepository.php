@@ -14,7 +14,12 @@ interface OrderRepository
     /** @return LengthAwarePaginator<int, Order> */
     public function list(?OrderStatus $status = null, ?string $email = null, int $perPage = 15): LengthAwarePaginator;
 
-    /** @param list<array{product_name: string, qty: int, unit_price: numeric-string}> $items */
+    /**
+     * Returns the creator's identical order placed within the same few-second window instead of
+     * inserting a duplicate (unique `fingerprint`), in which case `wasRecentlyCreated` is false.
+     *
+     * @param  list<array{product_name: string, qty: int, unit_price: numeric-string}>  $items
+     */
     public function create(int $customerId, array $items, User $creator): Order;
 
     public function delete(Order $order): void;

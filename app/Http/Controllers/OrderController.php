@@ -15,6 +15,7 @@ use Illuminate\Container\Attributes\CurrentUser;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Gate;
+use Throwable;
 
 final class OrderController extends Controller
 {
@@ -29,9 +30,15 @@ final class OrderController extends Controller
     {
         $order = $orders->create($request->customerId(), $request->items(), $creator);
 
-        OrderPlaced::dispatch($order);
+        if ($order->wasRecentlyCreated) {
+            try {
+                OrderPlaced::dispatch($order);
+            } catch (Throwable $exception) {
+                report($exception);
+            }
+        }
 
-        return (new OrderResource($order))->response()->setStatusCode(201);
+        return (new OrderResource($order))->response()->setStatusCode($order->wasRecentlyCreated ? 201 : 200);
     }
 
     public function destroy(Order $order, OrderRepository $orders): JsonResponse

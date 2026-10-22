@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const statusOptions = [
     { value: '', label: 'All statuses' },
@@ -48,6 +48,7 @@ export default function OrdersPage({ user, onLogout }) {
     const [items, setItems] = useState([blankItem()]);
     const [formError, setFormError] = useState('');
     const [saving, setSaving] = useState(false);
+    const savingRef = useRef(false);
 
     useEffect(() => {
         window.axios.get('/api/customers')
@@ -112,6 +113,12 @@ export default function OrdersPage({ user, onLogout }) {
 
     const submit = (event) => {
         event.preventDefault();
+
+        if (savingRef.current) {
+            return;
+        }
+
+        savingRef.current = true;
         setFormError('');
         setSaving(true);
 
@@ -131,7 +138,10 @@ export default function OrdersPage({ user, onLogout }) {
             .catch((error) => {
                 setFormError(errorMessage(error, 'Could not save the order.'));
             })
-            .finally(() => setSaving(false));
+            .finally(() => {
+                savingRef.current = false;
+                setSaving(false);
+            });
     };
 
     const removeOrder = (order) => {

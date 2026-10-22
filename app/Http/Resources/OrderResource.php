@@ -23,7 +23,7 @@ final class OrderResource extends JsonResource
             'email_sent' => $this->email_sent,
             'created_at' => $this->created_at?->toIso8601String(),
             'created_by' => $this->created_by,
-            'items_count' => $this->items->count(),
+            'items_count' => (int) $this->items_count,
             'customer' => [
                 'id' => $customer->id,
                 'name' => $customer->name,

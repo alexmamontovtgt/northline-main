@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * @property OrderStatus $status
+ * @property-read int|null $items_count
  */
 class Order extends Model
 {
@@ -27,6 +28,7 @@ class Order extends Model
         'total_amount',
         'email_sent',
         'created_by',
+        'fingerprint',
     ];
 
     protected function casts(): array

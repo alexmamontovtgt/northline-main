@@ -12,10 +12,12 @@ use Illuminate\Support\Facades\DB;
 
 final class EloquentOrderRepository implements OrderRepository
 {
+    private const DUPLICATE_WINDOW_SECONDS = 10;
+
     /** @return LengthAwarePaginator<int, Order> */
     public function list(?OrderStatus $status = null, ?string $email = null, int $perPage = 15): LengthAwarePaginator
     {
-        $query = Order::query()->with(['customer', 'items'])->latest()->latest('id');
+        $query = Order::query()->with('customer')->withCount('items')->latest()->latest('id');
 
         if ($status !== null) {
             $query->where('status', $status);
@@ -31,23 +33,38 @@ final class EloquentOrderRepository implements OrderRepository
     /** @param list<array{product_name: string, qty: int, unit_price: numeric-string}> $items */
     public function create(int $customerId, array $items, User $creator): Order
     {
-        $total = Order::totalFor($items);
+        $order = DB::transaction(function () use ($customerId, $items, $creator) {
+            $order = Order::query()->createOrFirst(
+                ['fingerprint' => $this->fingerprint($creator, $customerId, $items)],
+                [
+                    'customer_id' => $customerId,
+                    'status' => OrderStatus::New,
+                    'total_amount' => Order::totalFor($items),
+                    'email_sent' => false,
+                    'created_by' => $creator->id,
+                ],
+            );
 
-        $order = DB::transaction(function () use ($customerId, $items, $creator, $total) {
-            $order = Order::query()->create([
-                'customer_id' => $customerId,
-                'status' => OrderStatus::New,
-                'total_amount' => $total,
-                'email_sent' => false,
-                'created_by' => $creator->id,
-            ]);
-
-            $order->items()->createMany($items);
+            if ($order->wasRecentlyCreated) {
+                $order->items()->createMany($items);
+            }
 
             return $order;
         });
 
-        return $order->load(['customer', 'items']);
+        return $order->load('customer')->loadCount('items');
+    }
+
+    /** @param list<array{product_name: string, qty: int, unit_price: numeric-string}> $items */
+    private function fingerprint(User $creator, int $customerId, array $items): string
+    {
+        $lines = array_map(fn (array $item) => json_encode([$item['product_name'], $item['qty'], $item['unit_price']]), $items);
+
+        sort($lines);
+
+        $window = intdiv(now()->getTimestamp(), self::DUPLICATE_WINDOW_SECONDS);
+
+        return hash('sha256', json_encode([$creator->id, $customerId, $window, $lines], JSON_THROW_ON_ERROR));
     }
 
     public function delete(Order $order): void
