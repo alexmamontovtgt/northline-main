@@ -19,6 +19,11 @@ class OrderDeskTest extends TestCase
         $this->getJson('/api/orders')->assertUnauthorized();
     }
 
+    public function test_guests_cannot_create_orders(): void
+    {
+        $this->postJson('/api/orders', [])->assertUnauthorized();
+    }
+
     public function test_seeded_user_can_sign_in(): void
     {
         $this->seed();

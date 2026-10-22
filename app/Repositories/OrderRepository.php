@@ -6,7 +6,9 @@ namespace App\Repositories;
 
 use App\Enums\OrderStatus;
 use App\Models\Order;
+use App\Models\User;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
 
 class OrderRepository
 {
@@ -26,5 +28,36 @@ class OrderRepository
         }
 
         return $query->paginate($perPage);
+    }
+
+    /** @param list<array{product_name: string, qty: int, unit_price: float}> $items */
+    public function create(int $customerId, array $items, User $creator): Order
+    {
+        $total = array_reduce(
+            $items,
+            fn (float $sum, array $item) => $sum + round($item['qty'] * $item['unit_price'], 2),
+            0.0,
+        );
+
+        $order = DB::transaction(function () use ($customerId, $items, $creator, $total) {
+            $order = Order::query()->create([
+                'customer_id' => $customerId,
+                'status' => OrderStatus::New,
+                'total_amount' => round($total, 2),
+                'email_sent' => false,
+                'created_by' => $creator->id,
+            ]);
+
+            $order->items()->createMany($items);
+
+            return $order;
+        });
+
+        return $order->load(['customer', 'items']);
+    }
+
+    public function markEmailSent(Order $order): void
+    {
+        $order->forceFill(['email_sent' => true])->save();
     }
 }

@@ -10,6 +10,11 @@ use App\Models\User;
 
 class OrderPolicy
 {
+    public function create(User $user): bool
+    {
+        return true;
+    }
+
     public function delete(User $user, Order $order): bool
     {
         return $order->created_by === $user->id && $order->status === OrderStatus::New;
