@@ -192,6 +192,24 @@ class OrderDeskTest extends TestCase
         $this->assertSame('0.10', OrderItem::query()->orderBy('id')->firstOrFail()->unit_price);
     }
 
+    public function test_item_quantity_is_limited(): void
+    {
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        foreach ([0, 10001] as $qty) {
+            $this->actingAs($user)->postJson('/api/orders', [
+                'customer_id' => $customer->id,
+                'items' => [['product_name' => 'Part A', 'qty' => $qty, 'unit_price' => '1.00']],
+            ])->assertUnprocessable()->assertJsonValidationErrors('items.0.qty');
+        }
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [['product_name' => 'Part A', 'qty' => 10000, 'unit_price' => '1.00']],
+        ])->assertCreated();
+    }
+
     public function test_unit_price_cannot_have_more_than_two_decimals(): void
     {
         $user = User::factory()->create();

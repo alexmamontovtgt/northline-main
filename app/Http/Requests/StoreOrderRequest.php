@@ -21,7 +21,7 @@ class StoreOrderRequest extends FormRequest
             'customer_id' => ['required', 'integer', 'exists:customers,id'],
             'items' => ['required', 'array', 'min:1'],
             'items.*.product_name' => ['required', 'string', 'max:255'],
-            'items.*.qty' => ['required', 'integer', 'min:1'],
+            'items.*.qty' => ['required', 'integer', 'min:1', 'max:10000'],
             'items.*.unit_price' => ['required', 'numeric', 'decimal:0,2', 'min:0', 'max:99999999.99'],
         ];
     }
