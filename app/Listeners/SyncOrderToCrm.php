@@ -14,6 +14,8 @@ final class SyncOrderToCrm implements ShouldQueue
 {
     public int $tries = 3;
 
+    public bool $deleteWhenMissingModels = true;
+
     /** @return list<int> */
     public function backoff(): array
     {

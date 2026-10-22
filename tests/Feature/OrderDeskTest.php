@@ -136,9 +136,13 @@ class OrderDeskTest extends TestCase
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.customer.email', 'alice@example.test');
 
-        $this->actingAs($user)->getJson('/api/orders?email=alice')
+        $this->actingAs($user)->getJson('/api/orders?email=alic@example.test')
             ->assertOk()
             ->assertJsonCount(0, 'data');
+
+        $this->actingAs($user)->getJson('/api/orders?email=alice')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('email');
 
         $this->actingAs($user)->getJson('/api/orders?email=alice@example.test&status=new')
             ->assertOk()
@@ -170,6 +174,35 @@ class OrderDeskTest extends TestCase
         $this->assertSame(2, $order->items()->count());
     }
 
+    public function test_order_total_is_calculated_without_float_drift(): void
+    {
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [
+                ['product_name' => 'Part A', 'qty' => 3, 'unit_price' => 0.1],
+                ['product_name' => 'Part B', 'qty' => 7, 'unit_price' => '19.99'],
+                ['product_name' => 'Part C', 'qty' => 1, 'unit_price' => 1.15],
+            ],
+        ])->assertCreated();
+
+        $this->assertSame('141.38', Order::query()->firstOrFail()->total_amount);
+        $this->assertSame('0.10', OrderItem::query()->orderBy('id')->firstOrFail()->unit_price);
+    }
+
+    public function test_unit_price_cannot_have_more_than_two_decimals(): void
+    {
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [['product_name' => 'Part A', 'qty' => 1, 'unit_price' => '1.999']],
+        ])->assertUnprocessable()->assertJsonValidationErrors('items.0.unit_price');
+    }
+
     public function test_creating_an_order_dispatches_order_placed(): void
     {
         Event::fake([OrderPlaced::class]);
@@ -198,6 +231,33 @@ class OrderDeskTest extends TestCase
 
         Mail::assertSent(OrderPlacedMail::class, 1);
         $this->assertTrue($order->fresh()->email_sent);
+    }
+
+    public function test_customer_emails_are_stored_in_lower_case(): void
+    {
+        $customer = Customer::factory()->create(['email' => '  Buyer@Example.TEST ']);
+
+        $this->assertSame('buyer@example.test', $customer->fresh()->email);
+    }
+
+    public function test_queued_listeners_are_discarded_when_the_order_was_deleted(): void
+    {
+        config(['queue.default' => 'database']);
+        Mail::fake();
+
+        $user = User::factory()->create();
+        $order = Order::factory()->create(['status' => OrderStatus::New, 'created_by' => $user->id]);
+
+        OrderPlaced::dispatch($order);
+        $this->assertDatabaseCount('jobs', 2);
+
+        $order->delete();
+
+        $this->artisan('queue:work', ['--stop-when-empty' => true, '--tries' => 1])->assertSuccessful();
+
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('failed_jobs', 0);
+        Mail::assertNothingSent();
     }
 
     public function test_crm_sync_failure_is_logged(): void

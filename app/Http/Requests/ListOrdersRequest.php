@@ -15,7 +15,7 @@ class ListOrdersRequest extends FormRequest
     {
         return [
             'status' => ['nullable', Rule::enum(OrderStatus::class)],
-            'email' => ['nullable', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ];
     }
@@ -27,7 +27,7 @@ class ListOrdersRequest extends FormRequest
 
     public function customerEmail(): ?string
     {
-        return $this->filled('email') ? $this->string('email')->trim()->toString() : null;
+        return $this->filled('email') ? mb_strtolower($this->string('email')->trim()->toString()) : null;
     }
 
     public function perPage(): int

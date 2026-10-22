@@ -22,28 +22,26 @@ class OrderRepository
         }
 
         if ($email !== null) {
-            $email = mb_strtolower($email);
-
-            $query->whereHas('customer', fn ($customer) => $customer->whereRaw('lower(email) = ?', [$email]));
+            $query->whereRelation('customer', 'email', $email);
         }
 
         return $query->paginate($perPage);
     }
 
-    /** @param list<array{product_name: string, qty: int, unit_price: float}> $items */
+    /** @param list<array{product_name: string, qty: int, unit_price: numeric-string}> $items */
     public function create(int $customerId, array $items, User $creator): Order
     {
         $total = array_reduce(
             $items,
-            fn (float $sum, array $item) => $sum + round($item['qty'] * $item['unit_price'], 2),
-            0.0,
+            fn (string $sum, array $item) => bcadd($sum, bcmul((string) $item['qty'], $item['unit_price'], 2), 2),
+            '0.00',
         );
 
         $order = DB::transaction(function () use ($customerId, $items, $creator, $total) {
             $order = Order::query()->create([
                 'customer_id' => $customerId,
                 'status' => OrderStatus::New,
-                'total_amount' => round($total, 2),
+                'total_amount' => $total,
                 'email_sent' => false,
                 'created_by' => $creator->id,
             ]);

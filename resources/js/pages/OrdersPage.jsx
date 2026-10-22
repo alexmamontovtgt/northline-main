@@ -8,6 +8,10 @@ const statusOptions = [
     { value: 'cancelled', label: 'Cancelled' },
 ];
 
+function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function blankItem() {
     return { product_name: '', qty: '1', unit_price: '' };
 }
@@ -51,8 +55,14 @@ export default function OrdersPage({ user, onLogout }) {
                 params.status = status;
             }
 
-            if (email.trim()) {
-                params.email = email.trim();
+            const trimmedEmail = email.trim();
+
+            if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+                return;
+            }
+
+            if (trimmedEmail) {
+                params.email = trimmedEmail;
             }
 
             window.axios.get('/api/orders', { params })
