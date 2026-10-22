@@ -4,21 +4,18 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Enums\OrderStatus;
 use Database\Factories\OrderFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property OrderStatus $status
+ */
 class Order extends Model
 {
-    public const STATUSES = [
-        'new',
-        'processing',
-        'completed',
-        'cancelled',
-    ];
-
     /** @use HasFactory<OrderFactory> */
     use HasFactory;
 
@@ -33,6 +30,7 @@ class Order extends Model
     protected function casts(): array
     {
         return [
+            'status' => OrderStatus::class,
             'total_amount' => 'decimal:2',
             'email_sent' => 'boolean',
         ];
@@ -58,7 +56,7 @@ class Order extends Model
 
     public function legacyStatusCode(): string
     {
-        return $this->status === 'cancelled' ? 'x' : 'ok';
+        return $this->status === OrderStatus::Cancelled ? 'x' : 'ok';
 
         return 'x';
     }

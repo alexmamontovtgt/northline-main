@@ -5,6 +5,7 @@ const statusOptions = [
     { value: 'new', label: 'New' },
     { value: 'processing', label: 'Processing' },
     { value: 'completed', label: 'Completed' },
+    { value: 'cancelled', label: 'Cancelled' },
 ];
 
 function blankItem() {
@@ -26,6 +27,8 @@ export default function OrdersPage({ user, onLogout }) {
     const [customers, setCustomers] = useState([]);
     const [status, setStatus] = useState('');
     const [email, setEmail] = useState('');
+    const [page, setPage] = useState(1);
+    const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 });
     const [loaded, setLoaded] = useState(false);
     const [listError, setListError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
@@ -42,26 +45,42 @@ export default function OrdersPage({ user, onLogout }) {
 
     useEffect(() => {
         const load = () => {
-            const params = {};
+            const params = { page };
 
             if (status) {
                 params.status = status;
             }
 
+            if (email.trim()) {
+                params.email = email.trim();
+            }
+
             window.axios.get('/api/orders', { params })
                 .then((response) => {
+                    const { meta: pageMeta } = response.data;
+
+                    if (page > 1 && page > pageMeta.last_page) {
+                        setPage(pageMeta.last_page);
+
+                        return;
+                    }
+
                     setOrders(response.data.data);
+                    setMeta(pageMeta);
                     setListError('');
                     setLoaded(true);
                 })
                 .catch(() => setListError('Could not load orders.'));
         };
 
-        load();
+        const debounce = window.setTimeout(load, 300);
         const timer = window.setInterval(load, 4000);
 
-        return () => window.clearInterval(timer);
-    }, [status, reloadKey]);
+        return () => {
+            window.clearTimeout(debounce);
+            window.clearInterval(timer);
+        };
+    }, [status, email, page, reloadKey]);
 
     const updateItem = (index, field, value) => {
         setItems((current) => current.map((item, itemIndex) => {
@@ -139,7 +158,7 @@ export default function OrdersPage({ user, onLogout }) {
                             <span className="mb-1 block font-medium text-slate-700">Status</span>
                             <select
                                 value={status}
-                                onChange={(event) => setStatus(event.target.value)}
+                                onChange={(event) => { setStatus(event.target.value); setPage(1); }}
                                 className="rounded-md border border-slate-300 px-3 py-2"
                             >
                                 {statusOptions.map((option) => (
@@ -152,7 +171,7 @@ export default function OrdersPage({ user, onLogout }) {
                             <input
                                 type="email"
                                 value={email}
-                                onChange={(event) => setEmail(event.target.value)}
+                                onChange={(event) => { setEmail(event.target.value); setPage(1); }}
                                 placeholder="buyer@company.test"
                                 className="rounded-md border border-slate-300 px-3 py-2"
                             />
@@ -194,18 +213,44 @@ export default function OrdersPage({ user, onLogout }) {
                                         <td className="px-4 py-3">{order.email_sent ? 'Sent' : 'Pending'}</td>
                                         <td className="px-4 py-3">{order.created_by === user.id ? 'You' : 'Teammate'}</td>
                                         <td className="px-4 py-3 text-right">
-                                            <button
-                                                type="button"
-                                                onClick={() => removeOrder(order)}
-                                                className="text-red-700"
-                                            >
-                                                Delete
-                                            </button>
+                                            {order.can_delete && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeOrder(order)}
+                                                    className="text-red-700"
+                                                >
+                                                    Delete
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
+                        <span className="text-slate-500">
+                            Page {meta.current_page} of {meta.last_page} ({meta.total} orders)
+                        </span>
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setPage((value) => value - 1)}
+                                disabled={meta.current_page <= 1}
+                                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPage((value) => value + 1)}
+                                disabled={meta.current_page >= meta.last_page}
+                                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
+                            >
+                                Next
+                            </button>
+                        </div>
                     </div>
                 </section>
 

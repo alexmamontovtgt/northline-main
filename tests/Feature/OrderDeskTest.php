@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -39,7 +40,7 @@ class OrderDeskTest extends TestCase
 
         $this->assertGreaterThanOrEqual(30, Order::query()->count());
 
-        $statuses = Order::query()->pluck('status')->unique()->sort()->values()->all();
+        $statuses = Order::query()->pluck('status')->map(fn (OrderStatus $status) => $status->value)->unique()->sort()->values()->all();
 
         $this->assertSame(
             ['cancelled', 'completed', 'new', 'processing'],
@@ -87,6 +88,51 @@ class OrderDeskTest extends TestCase
             ->assertJsonPath('data.0.status', 'new');
     }
 
+    public function test_orders_can_be_filtered_by_every_status(): void
+    {
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        foreach (OrderStatus::cases() as $status) {
+            Order::factory()->create(['customer_id' => $customer->id, 'status' => $status, 'created_by' => $user->id]);
+        }
+
+        foreach (OrderStatus::cases() as $status) {
+            $this->actingAs($user)->getJson('/api/orders?status='.$status->value)
+                ->assertOk()
+                ->assertJsonCount(1, 'data')
+                ->assertJsonPath('data.0.status', $status->value);
+        }
+
+        $this->actingAs($user)->getJson('/api/orders?status=bogus')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('status');
+    }
+
+    public function test_orders_can_be_filtered_by_customer_email(): void
+    {
+        $user = User::factory()->create();
+        $alice = Customer::factory()->create(['email' => 'alice@example.test']);
+        $bob = Customer::factory()->create(['email' => 'bob@example.test']);
+
+        Order::factory()->create(['customer_id' => $alice->id, 'status' => 'new', 'created_by' => $user->id]);
+        Order::factory()->create(['customer_id' => $alice->id, 'status' => 'completed', 'created_by' => $user->id]);
+        Order::factory()->create(['customer_id' => $bob->id, 'status' => 'new', 'created_by' => $user->id]);
+
+        $this->actingAs($user)->getJson('/api/orders?email=ALICE@example.test')
+            ->assertOk()
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.customer.email', 'alice@example.test');
+
+        $this->actingAs($user)->getJson('/api/orders?email=alice')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $this->actingAs($user)->getJson('/api/orders?email=alice@example.test&status=new')
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
+    }
+
     public function test_a_user_can_create_an_order_with_several_items(): void
     {
         $user = User::factory()->create();
@@ -106,7 +152,7 @@ class OrderDeskTest extends TestCase
 
         $this->assertNotNull($order);
         $this->assertSame($user->id, $order->created_by);
-        $this->assertSame('new', $order->status);
+        $this->assertSame(OrderStatus::New, $order->status);
         $this->assertSame('25.00', $order->total_amount);
         $this->assertTrue($order->email_sent);
         $this->assertSame(2, $order->items()->count());
@@ -138,5 +184,70 @@ class OrderDeskTest extends TestCase
             ->assertOk();
 
         $this->assertModelMissing($order);
+    }
+
+    public function test_orders_expose_whether_they_can_be_deleted(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+
+        $mine = Order::factory()->create(['status' => 'new', 'created_by' => $user->id]);
+        $processing = Order::factory()->create(['status' => 'processing', 'created_by' => $user->id]);
+        $theirs = Order::factory()->create(['status' => 'new', 'created_by' => $other->id]);
+
+        $flags = collect($this->actingAs($user)->getJson('/api/orders')->assertOk()->json('data'))
+            ->pluck('can_delete', 'id');
+
+        $this->assertTrue($flags[$mine->id]);
+        $this->assertFalse($flags[$processing->id]);
+        $this->assertFalse($flags[$theirs->id]);
+    }
+
+    public function test_orders_are_paginated(): void
+    {
+        $user = User::factory()->create();
+        Order::factory()->count(5)->create(['created_by' => $user->id]);
+
+        $this->actingAs($user)->getJson('/api/orders?per_page=2&page=3')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('meta.current_page', 3)
+            ->assertJsonPath('meta.last_page', 3)
+            ->assertJsonPath('meta.total', 5);
+
+        $this->actingAs($user)->getJson('/api/orders')
+            ->assertOk()
+            ->assertJsonPath('meta.per_page', 15);
+
+        $this->actingAs($user)->getJson('/api/orders?per_page=500')
+            ->assertUnprocessable();
+    }
+
+    public function test_a_user_cannot_delete_another_users_order(): void
+    {
+        $owner = User::factory()->create();
+        $other = User::factory()->create();
+        $order = Order::factory()->create(['status' => 'new', 'created_by' => $owner->id]);
+
+        $this->actingAs($other)
+            ->deleteJson('/api/orders/'.$order->id)
+            ->assertForbidden();
+
+        $this->assertModelExists($order);
+    }
+
+    public function test_only_new_orders_can_be_deleted(): void
+    {
+        $user = User::factory()->create();
+
+        foreach (['processing', 'completed', 'cancelled'] as $status) {
+            $order = Order::factory()->create(['status' => $status, 'created_by' => $user->id]);
+
+            $this->actingAs($user)
+                ->deleteJson('/api/orders/'.$order->id)
+                ->assertForbidden();
+
+            $this->assertModelExists($order);
+        }
     }
 }

@@ -4,48 +4,29 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Enums\OrderStatus;
+use App\Http\Requests\ListOrdersRequest;
+use App\Http\Resources\OrderResource;
 use App\Mail\OrderPlacedMail;
 use App\Models\Order;
+use App\Repositories\OrderRepository;
 use App\Services\CrmSyncService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Throwable;
 
 class OrderController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(ListOrdersRequest $request, OrderRepository $orders): AnonymousResourceCollection
     {
-        $orders = Order::query()->latest();
-
-        if ($request->filled('status')) {
-            $orders->where('status', (string) $request->string('status'));
-        }
-
-        $orders = $orders->get();
-
-        return response()->json([
-            'data' => $orders->map(function (Order $order) {
-                $customer = $order->customer ?? throw new \RuntimeException('Order is missing its customer.');
-
-                return [
-                    'id' => $order->id,
-                    'status' => $order->status,
-                    'total_amount' => $order->total_amount,
-                    'email_sent' => $order->email_sent,
-                    'created_at' => $order->created_at?->toIso8601String(),
-                    'created_by' => $order->created_by,
-                    'items_count' => $order->items->count(),
-                    'customer' => [
-                        'id' => $customer->id,
-                        'name' => $customer->name,
-                        'email' => $customer->email,
-                    ],
-                ];
-            })->values(),
-        ]);
+        return OrderResource::collection(
+            $orders->list($request->status(), $request->customerEmail(), $request->perPage()),
+        );
     }
 
     public function store(Request $request, CrmSyncService $crm): JsonResponse
@@ -69,7 +50,7 @@ class OrderController extends Controller
         $order = DB::transaction(function () use ($validated, $actor, $total) {
             $order = Order::query()->create([
                 'customer_id' => $validated['customer_id'],
-                'status' => 'new',
+                'status' => OrderStatus::New,
                 'total_amount' => round($total, 2),
                 'email_sent' => false,
                 'created_by' => $actor->id,
@@ -109,6 +90,8 @@ class OrderController extends Controller
 
     public function destroy(Order $order): JsonResponse
     {
+        Gate::authorize('delete', $order);
+
         $order->delete();
 
         return response()->json([
