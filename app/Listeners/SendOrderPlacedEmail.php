@@ -8,13 +8,13 @@ use App\Events\OrderPlaced;
 use App\Mail\OrderPlacedMail;
 use App\Repositories\OrderRepository;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Illuminate\Support\Facades\Mail;
 
+#[DeleteWhenMissingModels]
 final class SendOrderPlacedEmail implements ShouldQueue
 {
     public int $tries = 3;
-
-    public bool $deleteWhenMissingModels = true;
 
     /** @return list<int> */
     public function backoff(): array

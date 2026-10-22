@@ -7,14 +7,14 @@ namespace App\Listeners;
 use App\Events\OrderPlaced;
 use App\Services\CrmSyncService;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Queue\Attributes\DeleteWhenMissingModels;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
+#[DeleteWhenMissingModels]
 final class SyncOrderToCrm implements ShouldQueue
 {
     public int $tries = 3;
-
-    public bool $deleteWhenMissingModels = true;
 
     /** @return list<int> */
     public function backoff(): array

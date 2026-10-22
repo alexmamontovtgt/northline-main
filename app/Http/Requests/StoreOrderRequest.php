@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Requests;
 
 use App\Models\Order;
-use App\Models\User;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreOrderRequest extends FormRequest
@@ -13,14 +12,6 @@ class StoreOrderRequest extends FormRequest
     public function authorize(): bool
     {
         return $this->user()?->can('create', Order::class) ?? false;
-    }
-
-    public function creator(): User
-    {
-        /** @var User $user */
-        $user = $this->user();
-
-        return $user;
     }
 
     /** @return array<string, array<int, mixed>> */

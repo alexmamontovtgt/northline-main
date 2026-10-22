@@ -54,6 +54,11 @@ class OrderRepository
         return $order->load(['customer', 'items']);
     }
 
+    public function delete(Order $order): void
+    {
+        $order->delete();
+    }
+
     public function markEmailSent(Order $order): void
     {
         $order->forceFill(['email_sent' => true])->save();
