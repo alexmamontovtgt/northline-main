@@ -210,6 +210,102 @@ class OrderDeskTest extends TestCase
         ])->assertCreated();
     }
 
+    public function test_deleting_a_missing_order_returns_a_friendly_message(): void
+    {
+        $this->actingAs(User::factory()->create())
+            ->deleteJson('/api/orders/9999')
+            ->assertNotFound()
+            ->assertExactJson(['message' => 'The requested record was not found.']);
+    }
+
+    public function test_order_validation_errors_are_readable(): void
+    {
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/orders', [])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.customer_id.0', 'Select a customer.')
+            ->assertJsonPath('errors.items.0', 'Add at least one order line.');
+
+        $this->actingAs($user)->postJson('/api/orders', ['customer_id' => 999, 'items' => [['product_name' => 'A', 'qty' => 1, 'unit_price' => '1.00']]])
+            ->assertJsonPath('errors.customer_id.0', 'The selected customer does not exist.');
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [
+                ['product_name' => 'A', 'qty' => 1, 'unit_price' => '1.00'],
+                ['product_name' => '', 'qty' => 'abc', 'unit_price' => 'abc'],
+            ],
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'items.1.product_name' => 'Line 2: enter a product name.',
+                'items.1.qty' => 'Line 2: the quantity must be a whole number.',
+                'items.1.unit_price' => 'Line 2: the unit price must be a number.',
+            ]);
+
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_order_total_cannot_exceed_the_column_limit(): void
+    {
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [
+                ['product_name' => 'A', 'qty' => 10000, 'unit_price' => '99999999.99'],
+            ],
+        ])
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.items.0', 'The order total may not exceed 99,999,999.99.');
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => [['product_name' => 'A', 'qty' => 1, 'unit_price' => '99999999.99']],
+        ])->assertCreated();
+
+        $this->assertDatabaseCount('orders', 1);
+    }
+
+    public function test_items_sent_as_an_object_are_stored_as_lines(): void
+    {
+        $user = User::factory()->create();
+        $customer = Customer::factory()->create();
+
+        $this->actingAs($user)->postJson('/api/orders', [
+            'customer_id' => $customer->id,
+            'items' => ['a' => ['product_name' => 'A', 'qty' => 2, 'unit_price' => '1.50']],
+        ])->assertCreated();
+
+        $this->assertSame('3.00', Order::query()->firstOrFail()->total_amount);
+        $this->assertDatabaseCount('order_items', 1);
+    }
+
+    public function test_list_validation_errors_are_readable(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->getJson('/api/orders?status=bogus')
+            ->assertJsonPath('errors.status.0', 'The status must be one of: new, processing, completed, cancelled.');
+
+        $this->actingAs($user)->getJson('/api/orders?email=alice')
+            ->assertJsonPath('errors.email.0', 'Enter a full email address, for example buyer@company.test.');
+
+        $this->actingAs($user)->getJson('/api/orders?page=0')
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.page.0', 'The page must be at least 1.');
+
+        $this->actingAs($user)->getJson('/api/orders?per_page=1000')
+            ->assertJsonPath('errors.per_page.0', 'The page size may not be greater than 100.');
+
+        $this->actingAs($user)->getJson('/api/orders?page=99')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+    }
+
     public function test_unit_price_cannot_have_more_than_two_decimals(): void
     {
         $user = User::factory()->create();
@@ -370,7 +466,8 @@ class OrderDeskTest extends TestCase
 
         $this->actingAs($other)
             ->deleteJson('/api/orders/'.$order->id)
-            ->assertForbidden();
+            ->assertForbidden()
+            ->assertJsonPath('message', 'You can only delete orders you created.');
 
         $this->assertModelExists($order);
     }
@@ -384,7 +481,8 @@ class OrderDeskTest extends TestCase
 
             $this->actingAs($user)
                 ->deleteJson('/api/orders/'.$order->id)
-                ->assertForbidden();
+                ->assertForbidden()
+                ->assertJsonPath('message', 'Only orders with status "new" can be deleted.');
 
             $this->assertModelExists($order);
         }

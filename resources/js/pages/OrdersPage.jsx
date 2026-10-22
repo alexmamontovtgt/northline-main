@@ -12,6 +12,13 @@ function isValidEmail(value) {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+function errorMessage(error, fallback) {
+    const errors = error.response?.data?.errors;
+    const first = errors ? Object.values(errors).flat()[0] : null;
+
+    return first || error.response?.data?.message || fallback;
+}
+
 function blankItem() {
     return { product_name: '', qty: '1', unit_price: '' };
 }
@@ -35,6 +42,7 @@ export default function OrdersPage({ user, onLogout }) {
     const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 });
     const [loaded, setLoaded] = useState(false);
     const [listError, setListError] = useState('');
+    const [deleteError, setDeleteError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
     const [customerId, setCustomerId] = useState('');
     const [items, setItems] = useState([blankItem()]);
@@ -80,7 +88,7 @@ export default function OrdersPage({ user, onLogout }) {
                     setListError('');
                     setLoaded(true);
                 })
-                .catch(() => setListError('Could not load orders.'));
+                .catch((error) => setListError(errorMessage(error, 'Could not load orders.')));
         };
 
         const debounce = window.setTimeout(load, 300);
@@ -121,7 +129,7 @@ export default function OrdersPage({ user, onLogout }) {
                 setReloadKey((value) => value + 1);
             })
             .catch((error) => {
-                setFormError(error.response?.data?.message || 'Could not save the order.');
+                setFormError(errorMessage(error, 'Could not save the order.'));
             })
             .finally(() => setSaving(false));
     };
@@ -131,9 +139,14 @@ export default function OrdersPage({ user, onLogout }) {
             return;
         }
 
+        setDeleteError('');
+
         window.axios.delete(`/api/orders/${order.id}`)
             .then(() => setReloadKey((value) => value + 1))
-            .catch(() => setListError('Could not delete the order.'));
+            .catch((error) => {
+                setDeleteError(errorMessage(error, 'Could not delete the order.'));
+                setReloadKey((value) => value + 1);
+            });
     };
 
     const signOut = () => {
@@ -189,6 +202,7 @@ export default function OrdersPage({ user, onLogout }) {
                     </div>
 
                     {listError && <p className="px-4 pt-3 text-sm text-red-700">{listError}</p>}
+                    {deleteError && <p className="px-4 pt-3 text-sm text-red-700">{deleteError}</p>}
 
                     <div className="overflow-x-auto">
                         <table className="min-w-full text-left text-sm">

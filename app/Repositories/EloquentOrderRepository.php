@@ -31,11 +31,7 @@ final class EloquentOrderRepository implements OrderRepository
     /** @param list<array{product_name: string, qty: int, unit_price: numeric-string}> $items */
     public function create(int $customerId, array $items, User $creator): Order
     {
-        $total = array_reduce(
-            $items,
-            fn (string $sum, array $item) => bcadd($sum, bcmul((string) $item['qty'], $item['unit_price'], 2), 2),
-            '0.00',
-        );
+        $total = Order::totalFor($items);
 
         $order = DB::transaction(function () use ($customerId, $items, $creator, $total) {
             $order = Order::query()->create([

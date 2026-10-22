@@ -16,6 +16,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Order extends Model
 {
+    public const MAX_TOTAL = '99999999.99';
+
     /** @use HasFactory<OrderFactory> */
     use HasFactory;
 
@@ -34,6 +36,21 @@ class Order extends Model
             'total_amount' => 'decimal:2',
             'email_sent' => 'boolean',
         ];
+    }
+
+    /**
+     * @param  list<array{qty: int|numeric-string, unit_price: int|float|numeric-string}>  $items
+     * @return numeric-string
+     */
+    public static function totalFor(array $items): string
+    {
+        $total = '0.00';
+
+        foreach ($items as $item) {
+            $total = bcadd($total, bcmul((string) $item['qty'], (string) $item['unit_price'], 2), 2);
+        }
+
+        return $total;
     }
 
     /** @return BelongsTo<Customer, $this> */

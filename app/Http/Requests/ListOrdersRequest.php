@@ -14,9 +14,27 @@ final class ListOrdersRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => ['nullable', Rule::enum(OrderStatus::class)],
+            'status' => ['nullable', Rule::in(array_column(OrderStatus::cases(), 'value'))],
             'email' => ['nullable', 'email', 'max:255'],
+            'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public function messages(): array
+    {
+        $statuses = implode(', ', array_map(fn (OrderStatus $status) => $status->value, OrderStatus::cases()));
+
+        return [
+            'status.in' => 'The status must be one of: '.$statuses.'.',
+            'email.email' => 'Enter a full email address, for example buyer@company.test.',
+            'email.max' => 'The email may not be longer than :max characters.',
+            'page.integer' => 'The page must be a whole number.',
+            'page.min' => 'The page must be at least :min.',
+            'per_page.integer' => 'The page size must be a whole number.',
+            'per_page.min' => 'The page size must be at least :min.',
+            'per_page.max' => 'The page size may not be greater than :max.',
         ];
     }
 

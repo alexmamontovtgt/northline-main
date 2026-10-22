@@ -7,6 +7,7 @@ namespace App\Policies;
 use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\User;
+use Illuminate\Auth\Access\Response;
 
 final class OrderPolicy
 {
@@ -15,8 +16,12 @@ final class OrderPolicy
         return true;
     }
 
-    public function delete(User $user, Order $order): bool
+    public function delete(User $user, Order $order): Response
     {
-        return $order->created_by === $user->id && $order->status === OrderStatus::New;
+        return match (true) {
+            $order->created_by !== $user->id => Response::deny('You can only delete orders you created.'),
+            $order->status !== OrderStatus::New => Response::deny('Only orders with status "new" can be deleted.'),
+            default => Response::allow(),
+        };
     }
 }
