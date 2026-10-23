@@ -19,20 +19,31 @@ php artisan migrate --seed
 npm install
 ```
 
-Then either:
+Then either, in three terminals:
 
 ```bash
 php artisan serve
+php artisan queue:listen --tries=1
 npm run dev
 ```
 
-or:
+or, in one:
 
 ```bash
 composer run dev
 ```
 
 Open http://localhost:8000. Tests: `php artisan test`.
+
+### Queue worker
+
+Order emails and the CRM sync run as queued listeners (`QUEUE_CONNECTION=database`), so a worker has to be running. Without one, new orders stay "Pending" in the list and no email or CRM sync happens. `composer run dev` starts a worker for you.
+
+- Local development: `php artisan queue:listen --tries=1`. It reloads code on every job, so you do not need to restart it after changes. Stop it with `Ctrl+C`.
+- Run the queued jobs once and exit: `php artisan queue:work --stop-when-empty`
+- Production: run `php artisan queue:work` under a process manager such as Supervisor or systemd, and run `php artisan queue:restart` after each deploy.
+- Each listener retries up to 3 times (10 s, then 60 s backoff). A job that still fails lands in `failed_jobs`: list with `php artisan queue:failed`, re-queue with `php artisan queue:retry all`.
+- Tests use the `sync` queue (see `phpunit.xml`), so they need no worker.
 
 Pint, PHPStan, Rector, and Pest are installed. Nothing runs them for you, and they are not part of the task list. `php artisan test` is the suite this app ships with. Use the others only if you decide they help
 
@@ -57,7 +68,7 @@ Both passwords are `password`
 
 `app/Services/CrmSyncService.php` is a local stand-in. It is slow on purpose. Orders for Westbridge Hydraulics are rejected every time. The order is still saved, and the rejection is written to the log
 
-The database queue driver and `jobs` table are already configured. Nothing is dispatched yet, so you do not need a queue worker to use the app as shipped
+The database queue driver and `jobs` table are configured. Placing an order dispatches an `OrderPlaced` event whose listeners send the email and push to CRM, so a queue worker must be running (see [Queue worker](#queue-worker))
 
 ## What to do
 

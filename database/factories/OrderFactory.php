@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Enums\OrderStatus;
 use App\Models\Customer;
 use App\Models\Order;
 use App\Models\User;
@@ -20,7 +21,7 @@ class OrderFactory extends Factory
     {
         return [
             'customer_id' => Customer::factory(),
-            'status' => 'new',
+            'status' => OrderStatus::New,
             'total_amount' => 25.00,
             'email_sent' => false,
             'created_by' => User::factory(),

@@ -1,11 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const statusOptions = [
     { value: '', label: 'All statuses' },
     { value: 'new', label: 'New' },
     { value: 'processing', label: 'Processing' },
     { value: 'completed', label: 'Completed' },
+    { value: 'cancelled', label: 'Cancelled' },
 ];
+
+function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function errorMessage(error, fallback) {
+    const errors = error.response?.data?.errors;
+    const first = errors ? Object.values(errors).flat()[0] : null;
+
+    return first || error.response?.data?.message || fallback;
+}
 
 function blankItem() {
     return { product_name: '', qty: '1', unit_price: '' };
@@ -26,13 +38,17 @@ export default function OrdersPage({ user, onLogout }) {
     const [customers, setCustomers] = useState([]);
     const [status, setStatus] = useState('');
     const [email, setEmail] = useState('');
+    const [page, setPage] = useState(1);
+    const [meta, setMeta] = useState({ current_page: 1, last_page: 1, total: 0 });
     const [loaded, setLoaded] = useState(false);
     const [listError, setListError] = useState('');
+    const [deleteError, setDeleteError] = useState('');
     const [reloadKey, setReloadKey] = useState(0);
     const [customerId, setCustomerId] = useState('');
     const [items, setItems] = useState([blankItem()]);
     const [formError, setFormError] = useState('');
     const [saving, setSaving] = useState(false);
+    const savingRef = useRef(false);
 
     useEffect(() => {
         window.axios.get('/api/customers')
@@ -42,26 +58,48 @@ export default function OrdersPage({ user, onLogout }) {
 
     useEffect(() => {
         const load = () => {
-            const params = {};
+            const params = { page };
 
             if (status) {
                 params.status = status;
             }
 
+            const trimmedEmail = email.trim();
+
+            if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+                return;
+            }
+
+            if (trimmedEmail) {
+                params.email = trimmedEmail;
+            }
+
             window.axios.get('/api/orders', { params })
                 .then((response) => {
+                    const { meta: pageMeta } = response.data;
+
+                    if (page > 1 && page > pageMeta.last_page) {
+                        setPage(pageMeta.last_page);
+
+                        return;
+                    }
+
                     setOrders(response.data.data);
+                    setMeta(pageMeta);
                     setListError('');
                     setLoaded(true);
                 })
-                .catch(() => setListError('Could not load orders.'));
+                .catch((error) => setListError(errorMessage(error, 'Could not load orders.')));
         };
 
-        load();
+        const debounce = window.setTimeout(load, 300);
         const timer = window.setInterval(load, 4000);
 
-        return () => window.clearInterval(timer);
-    }, [status, reloadKey]);
+        return () => {
+            window.clearTimeout(debounce);
+            window.clearInterval(timer);
+        };
+    }, [status, email, page, reloadKey]);
 
     const updateItem = (index, field, value) => {
         setItems((current) => current.map((item, itemIndex) => {
@@ -75,6 +113,12 @@ export default function OrdersPage({ user, onLogout }) {
 
     const submit = (event) => {
         event.preventDefault();
+
+        if (savingRef.current) {
+            return;
+        }
+
+        savingRef.current = true;
         setFormError('');
         setSaving(true);
 
@@ -92,9 +136,12 @@ export default function OrdersPage({ user, onLogout }) {
                 setReloadKey((value) => value + 1);
             })
             .catch((error) => {
-                setFormError(error.response?.data?.message || 'Could not save the order.');
+                setFormError(errorMessage(error, 'Could not save the order.'));
             })
-            .finally(() => setSaving(false));
+            .finally(() => {
+                savingRef.current = false;
+                setSaving(false);
+            });
     };
 
     const removeOrder = (order) => {
@@ -102,9 +149,14 @@ export default function OrdersPage({ user, onLogout }) {
             return;
         }
 
+        setDeleteError('');
+
         window.axios.delete(`/api/orders/${order.id}`)
             .then(() => setReloadKey((value) => value + 1))
-            .catch(() => setListError('Could not delete the order.'));
+            .catch((error) => {
+                setDeleteError(errorMessage(error, 'Could not delete the order.'));
+                setReloadKey((value) => value + 1);
+            });
     };
 
     const signOut = () => {
@@ -139,7 +191,7 @@ export default function OrdersPage({ user, onLogout }) {
                             <span className="mb-1 block font-medium text-slate-700">Status</span>
                             <select
                                 value={status}
-                                onChange={(event) => setStatus(event.target.value)}
+                                onChange={(event) => { setStatus(event.target.value); setPage(1); }}
                                 className="rounded-md border border-slate-300 px-3 py-2"
                             >
                                 {statusOptions.map((option) => (
@@ -152,7 +204,7 @@ export default function OrdersPage({ user, onLogout }) {
                             <input
                                 type="email"
                                 value={email}
-                                onChange={(event) => setEmail(event.target.value)}
+                                onChange={(event) => { setEmail(event.target.value); setPage(1); }}
                                 placeholder="buyer@company.test"
                                 className="rounded-md border border-slate-300 px-3 py-2"
                             />
@@ -160,6 +212,7 @@ export default function OrdersPage({ user, onLogout }) {
                     </div>
 
                     {listError && <p className="px-4 pt-3 text-sm text-red-700">{listError}</p>}
+                    {deleteError && <p className="px-4 pt-3 text-sm text-red-700">{deleteError}</p>}
 
                     <div className="overflow-x-auto">
                         <table className="min-w-full text-left text-sm">
@@ -194,18 +247,44 @@ export default function OrdersPage({ user, onLogout }) {
                                         <td className="px-4 py-3">{order.email_sent ? 'Sent' : 'Pending'}</td>
                                         <td className="px-4 py-3">{order.created_by === user.id ? 'You' : 'Teammate'}</td>
                                         <td className="px-4 py-3 text-right">
-                                            <button
-                                                type="button"
-                                                onClick={() => removeOrder(order)}
-                                                className="text-red-700"
-                                            >
-                                                Delete
-                                            </button>
+                                            {order.can_delete && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeOrder(order)}
+                                                    className="text-red-700"
+                                                >
+                                                    Delete
+                                                </button>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3 text-sm">
+                        <span className="text-slate-500">
+                            Page {meta.current_page} of {meta.last_page} ({meta.total} orders)
+                        </span>
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setPage((value) => value - 1)}
+                                disabled={meta.current_page <= 1}
+                                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPage((value) => value + 1)}
+                                disabled={meta.current_page >= meta.last_page}
+                                className="rounded-md border border-slate-300 px-3 py-1.5 disabled:opacity-50"
+                            >
+                                Next
+                            </button>
+                        </div>
                     </div>
                 </section>
 
